@@ -5,10 +5,15 @@ namespace SonyBraviaControl.Services;
 
 public sealed class AdbService : IAdbService
 {
+    private readonly SemaphoreSlim _fastShellLock = new(1, 1);
+    private Process? _fastShell;
+    private string? _fastShellSerial;
+    private string? _fastShellAdbPath;
+
     public string ResolveAdbPath(string? preferredPath = null)
     {
         if (!string.IsNullOrWhiteSpace(preferredPath) && File.Exists(preferredPath))
-            return preferredPath!;
+            return preferredPath;
 
         var executable = OperatingSystem.IsWindows() ? "adb.exe" : "adb";
         var path = Environment.GetEnvironmentVariable("PATH");
@@ -54,11 +59,20 @@ public sealed class AdbService : IAdbService
     {
         var result = await RunAsync(adbPath, ["connect", serial], cancellationToken);
         if (result.ExitCode != 0) throw new InvalidOperationException(result.ErrorText);
+
+        // Keep one adb shell alive. Remote key presses can then be written to the
+        // existing LAN connection instead of launching a new adb process per click.
+        try { await EnsureFastShellAsync(adbPath, serial, cancellationToken); }
+        catch { /* One-shot ADB remains available as a fallback. */ }
+
         return result.OutputText.Trim();
     }
 
     public async Task DisconnectAsync(string adbPath, string serial, CancellationToken cancellationToken = default)
-        => _ = await RunAsync(adbPath, ["disconnect", serial], cancellationToken);
+    {
+        await StopFastShellAsync();
+        _ = await RunAsync(adbPath, ["disconnect", serial], cancellationToken);
+    }
 
     public async Task<bool> IsConnectedAsync(string adbPath, string serial, CancellationToken cancellationToken = default)
     {
@@ -68,7 +82,19 @@ public sealed class AdbService : IAdbService
     }
 
     public async Task SendKeyAsync(string adbPath, string serial, string keyCode, CancellationToken cancellationToken = default)
-        => EnsureSuccess(await RunAsync(adbPath, ["-s", serial, "shell", "input", "keyevent", keyCode], cancellationToken));
+    {
+        try
+        {
+            await SendFastShellCommandAsync(adbPath, serial, $"input keyevent {keyCode}", cancellationToken);
+            return;
+        }
+        catch
+        {
+            await StopFastShellAsync();
+        }
+
+        EnsureSuccess(await RunAsync(adbPath, ["-s", serial, "shell", "input", "keyevent", keyCode], cancellationToken));
+    }
 
     public async Task SendTextAsync(string adbPath, string serial, string text, CancellationToken cancellationToken = default)
     {
@@ -80,12 +106,127 @@ public sealed class AdbService : IAdbService
         => EnsureSuccess(await RunAsync(adbPath, ["-s", serial, "shell", "monkey", "-p", packageName, "-c", "android.intent.category.LAUNCHER", "1"], cancellationToken));
 
     public async Task RebootAsync(string adbPath, string serial, CancellationToken cancellationToken = default)
-        => EnsureSuccess(await RunAsync(adbPath, ["-s", serial, "reboot"], cancellationToken));
+    {
+        EnsureSuccess(await RunAsync(adbPath, ["-s", serial, "reboot"], cancellationToken));
+        await StopFastShellAsync();
+    }
 
     public async Task<string> GetModelAsync(string adbPath, string serial, CancellationToken cancellationToken = default)
     {
         var result = await RunAsync(adbPath, ["-s", serial, "shell", "getprop", "ro.product.model"], cancellationToken);
         return result.ExitCode == 0 ? result.OutputText.Trim() : string.Empty;
+    }
+
+    private async Task SendFastShellCommandAsync(string adbPath, string serial, string command, CancellationToken cancellationToken)
+    {
+        await _fastShellLock.WaitAsync(cancellationToken);
+        try
+        {
+            await EnsureFastShellCoreAsync(adbPath, serial, cancellationToken);
+
+            if (_fastShell is null || _fastShell.HasExited)
+                throw new InvalidOperationException("La sesión ADB rápida no está disponible.");
+
+            await _fastShell.StandardInput.WriteLineAsync(command.AsMemory(), cancellationToken);
+            await _fastShell.StandardInput.FlushAsync(cancellationToken);
+        }
+        finally
+        {
+            _fastShellLock.Release();
+        }
+    }
+
+    private async Task EnsureFastShellAsync(string adbPath, string serial, CancellationToken cancellationToken)
+    {
+        await _fastShellLock.WaitAsync(cancellationToken);
+        try
+        {
+            await EnsureFastShellCoreAsync(adbPath, serial, cancellationToken);
+        }
+        finally
+        {
+            _fastShellLock.Release();
+        }
+    }
+
+    private async Task EnsureFastShellCoreAsync(string adbPath, string serial, CancellationToken cancellationToken)
+    {
+        if (_fastShell is { HasExited: false } &&
+            string.Equals(_fastShellSerial, serial, StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(_fastShellAdbPath, adbPath, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        StopFastShellCore();
+
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = adbPath,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardInput = true,
+            RedirectStandardOutput = false,
+            RedirectStandardError = false
+        };
+        startInfo.ArgumentList.Add("-s");
+        startInfo.ArgumentList.Add(serial);
+        startInfo.ArgumentList.Add("shell");
+
+        var process = new Process { StartInfo = startInfo };
+        if (!process.Start())
+        {
+            process.Dispose();
+            throw new InvalidOperationException("No se pudo iniciar la sesión ADB rápida.");
+        }
+
+        _fastShell = process;
+        _fastShellSerial = serial;
+        _fastShellAdbPath = adbPath;
+
+        // Give adb a tiny window to fail immediately if the device went offline.
+        await Task.Delay(35, cancellationToken);
+        if (process.HasExited)
+        {
+            StopFastShellCore();
+            throw new InvalidOperationException("La tele no aceptó la sesión ADB rápida.");
+        }
+    }
+
+    private async Task StopFastShellAsync()
+    {
+        await _fastShellLock.WaitAsync();
+        try { StopFastShellCore(); }
+        finally { _fastShellLock.Release(); }
+    }
+
+    private void StopFastShellCore()
+    {
+        if (_fastShell is null) return;
+
+        try
+        {
+            if (!_fastShell.HasExited)
+            {
+                try
+                {
+                    _fastShell.StandardInput.WriteLine("exit");
+                    _fastShell.StandardInput.Flush();
+                }
+                catch { }
+
+                if (!_fastShell.WaitForExit(150))
+                    _fastShell.Kill(entireProcessTree: true);
+            }
+        }
+        catch { }
+        finally
+        {
+            _fastShell.Dispose();
+            _fastShell = null;
+            _fastShellSerial = null;
+            _fastShellAdbPath = null;
+        }
     }
 
     private static void EnsureSuccess(ProcessResult result)
