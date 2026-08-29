@@ -6,5 +6,6 @@ public sealed class BraviaSettings
     public int Port { get; set; } = 5555;
     public string MacAddress { get; set; } = string.Empty;
     public string AdbPath { get; set; } = string.Empty;
+    public string PreSharedKey { get; set; } = string.Empty;
     public bool AutoConnect { get; set; } = true;
 }
