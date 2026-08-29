@@ -8,24 +8,33 @@
         <SolidColorBrush x:Key="ButtonHover" Color="#2C343D" />
         <SolidColorBrush x:Key="AccentBrush" Color="#66D3C8" />
         <SolidColorBrush x:Key="DangerBrush" Color="#F06A6A" />
-        <SolidColorBrush x:Key="TextPrimary" Color="#F3F5F7" />
-        <SolidColorBrush x:Key="TextSecondary" Color="#9CA7B2" />
+        <SolidColorBrush x:Key="TextPrimary" Color="#FFFFFF" />
+        <SolidColorBrush x:Key="TextSecondary" Color="#B8C1CB" />
 
         <Style TargetType="Window">
             <Setter Property="Background" Value="{StaticResource AppBackground}" />
-            <Setter Property="Foreground" Value="{StaticResource TextPrimary}" />
+            <Setter Property="Foreground" Value="#FFFFFF" />
+            <Setter Property="TextElement.Foreground" Value="#FFFFFF" />
             <Setter Property="FontFamily" Value="Segoe UI" />
         </Style>
 
-        <!-- TextBlock does not reliably inherit Window.Foreground through every WPF
-             template/container. Set it explicitly so dark theme text can never turn black. -->
+        <!-- Force foreground explicitly. Some WPF templates/containers otherwise fall
+             back to the system black foreground even inside our dark theme. -->
         <Style TargetType="TextBlock">
-            <Setter Property="Foreground" Value="{StaticResource TextPrimary}" />
+            <Setter Property="Foreground" Value="#FFFFFF" />
+        </Style>
+
+        <Style TargetType="Label">
+            <Setter Property="Foreground" Value="#FFFFFF" />
+        </Style>
+
+        <Style TargetType="Expander">
+            <Setter Property="Foreground" Value="#FFFFFF" />
         </Style>
 
         <Style x:Key="RemoteButton" TargetType="Button">
             <Setter Property="Background" Value="{StaticResource ButtonBackground}" />
-            <Setter Property="Foreground" Value="{StaticResource TextPrimary}" />
+            <Setter Property="Foreground" Value="#FFFFFF" />
             <Setter Property="BorderBrush" Value="#2F3842" />
             <Setter Property="BorderThickness" Value="1" />
             <Setter Property="Padding" Value="12,10" />
@@ -63,18 +72,19 @@
         <Style x:Key="AccentButton" TargetType="Button" BasedOn="{StaticResource RemoteButton}">
             <Setter Property="Background" Value="#173A37" />
             <Setter Property="BorderBrush" Value="#2C7770" />
-            <Setter Property="Foreground" Value="#B9FFF7" />
+            <Setter Property="Foreground" Value="#FFFFFF" />
         </Style>
 
         <Style x:Key="DangerButton" TargetType="Button" BasedOn="{StaticResource RemoteButton}">
             <Setter Property="Background" Value="#401D22" />
             <Setter Property="BorderBrush" Value="#7D343E" />
-            <Setter Property="Foreground" Value="#FFD6DB" />
+            <Setter Property="Foreground" Value="#FFFFFF" />
         </Style>
 
         <Style TargetType="TextBox">
             <Setter Property="Background" Value="#0F1317" />
-            <Setter Property="Foreground" Value="{StaticResource TextPrimary}" />
+            <Setter Property="Foreground" Value="#FFFFFF" />
+            <Setter Property="CaretBrush" Value="#FFFFFF" />
             <Setter Property="BorderBrush" Value="#34404A" />
             <Setter Property="BorderThickness" Value="1" />
             <Setter Property="Padding" Value="10,7" />
