@@ -9,6 +9,7 @@ namespace SonyBraviaControl.ViewModels;
 public sealed class MainViewModel : ObservableObject
 {
     private readonly IAdbService _adb;
+    private readonly IIrccService _ircc;
     private readonly IWakeOnLanService _wakeOnLan;
     private readonly ISettingsStore _settingsStore;
     private readonly AsyncRelayCommand _connectCommand;
@@ -22,15 +23,18 @@ public sealed class MainViewModel : ObservableObject
     private string _port = "5555";
     private string _macAddress = string.Empty;
     private string _adbPath = "adb.exe";
+    private string _preSharedKey = string.Empty;
     private string _deviceName = "Sony Bravia · sin conectar";
     private string _statusText = "Desconectado";
     private Brush _statusBrush = Brushes.IndianRed;
     private string _textToSend = string.Empty;
     private bool _isConnected;
+    private bool _isIpControlAvailable;
 
-    public MainViewModel(IAdbService adb, IWakeOnLanService wakeOnLan, ISettingsStore settingsStore)
+    public MainViewModel(IAdbService adb, IIrccService ircc, IWakeOnLanService wakeOnLan, ISettingsStore settingsStore)
     {
         _adb = adb;
+        _ircc = ircc;
         _wakeOnLan = wakeOnLan;
         _settingsStore = settingsStore;
 
@@ -47,6 +51,7 @@ public sealed class MainViewModel : ObservableObject
     public string Port { get => _port; set => SetProperty(ref _port, value); }
     public string MacAddress { get => _macAddress; set => SetProperty(ref _macAddress, value); }
     public string AdbPath { get => _adbPath; set => SetProperty(ref _adbPath, value); }
+    public string PreSharedKey { get => _preSharedKey; set => SetProperty(ref _preSharedKey, value); }
     public string DeviceName { get => _deviceName; private set => SetProperty(ref _deviceName, value); }
     public string StatusText { get => _statusText; private set => SetProperty(ref _statusText, value); }
     public Brush StatusBrush { get => _statusBrush; private set => SetProperty(ref _statusBrush, value); }
@@ -92,6 +97,7 @@ public sealed class MainViewModel : ObservableObject
         Port = settings.Port.ToString();
         MacAddress = settings.MacAddress;
         AdbPath = _adb.ResolveAdbPath(settings.AdbPath);
+        PreSharedKey = settings.PreSharedKey;
 
         if (settings.AutoConnect)
             await ConnectAsync();
@@ -115,8 +121,12 @@ public sealed class MainViewModel : ObservableObject
             var model = await _adb.GetModelAsync(AdbPath, Serial);
             DeviceName = string.IsNullOrWhiteSpace(model) ? $"Sony Bravia · {Serial}" : $"{model} · {Serial}";
             IsConnected = true;
-            StatusText = "Conectado";
-            StatusBrush = Brushes.MediumAquamarine;
+
+            // ADB's Android `input` command is noticeably slow on older BRAVIA firmware.
+            // Probe Sony's native LAN remote protocol once and use it for every remote key
+            // when available. This is the same control path as an IP remote, not shell input.
+            _isIpControlAvailable = await _ircc.ProbeAsync(IpAddress, PreSharedKey);
+            SetConnectedStatus();
         }
         catch
         {
@@ -126,6 +136,7 @@ public sealed class MainViewModel : ObservableObject
 
     private async Task DisconnectAsync()
     {
+        _isIpControlAvailable = false;
         try { await _adb.DisconnectAsync(AdbPath, Serial); }
         finally { SetDisconnected("Desconectado"); }
     }
@@ -133,8 +144,26 @@ public sealed class MainViewModel : ObservableObject
     private async Task SendKeyAsync(string? keyCode)
     {
         if (string.IsNullOrWhiteSpace(keyCode)) return;
-        try { await _adb.SendKeyAsync(AdbPath, Serial, keyCode); }
-        catch { SetDisconnected("Conexión perdida"); }
+
+        try
+        {
+            if (_isIpControlAvailable && _ircc.SupportsKey(keyCode))
+            {
+                if (await _ircc.SendKeyAsync(IpAddress, PreSharedKey, keyCode))
+                    return;
+
+                // Do not keep paying an HTTP timeout on every click if IP control goes away.
+                _isIpControlAvailable = false;
+                StatusText = "Conectado · ADB (IP perdido)";
+                StatusBrush = Brushes.Goldenrod;
+            }
+
+            await _adb.SendKeyAsync(AdbPath, Serial, keyCode);
+        }
+        catch
+        {
+            SetDisconnected("Conexión perdida");
+        }
     }
 
     private async Task LaunchAppAsync(string? packageName)
@@ -166,8 +195,8 @@ public sealed class MainViewModel : ObservableObject
             {
                 IsConnected = true;
                 await _adb.SendKeyAsync(AdbPath, Serial, "KEYCODE_WAKEUP");
-                StatusText = "Conectado";
-                StatusBrush = Brushes.MediumAquamarine;
+                _isIpControlAvailable = await _ircc.ProbeAsync(IpAddress, PreSharedKey);
+                SetConnectedStatus();
                 return;
             }
 
@@ -191,9 +220,9 @@ public sealed class MainViewModel : ObservableObject
                     var model = await _adb.GetModelAsync(AdbPath, Serial);
                     DeviceName = string.IsNullOrWhiteSpace(model) ? $"Sony Bravia · {Serial}" : $"{model} · {Serial}";
                     IsConnected = true;
-                    StatusText = "Conectado";
-                    StatusBrush = Brushes.MediumAquamarine;
                     await _adb.SendKeyAsync(AdbPath, Serial, "KEYCODE_WAKEUP");
+                    _isIpControlAvailable = await _ircc.ProbeAsync(IpAddress, PreSharedKey);
+                    SetConnectedStatus();
                     return;
                 }
                 catch { }
@@ -210,6 +239,7 @@ public sealed class MainViewModel : ObservableObject
         {
             StatusText = "Reiniciando…";
             StatusBrush = Brushes.Goldenrod;
+            _isIpControlAvailable = false;
             await _adb.RebootAsync(AdbPath, Serial);
             IsConnected = false;
         }
@@ -224,8 +254,15 @@ public sealed class MainViewModel : ObservableObject
             Port = int.TryParse(Port, out var port) ? port : 5555,
             MacAddress = MacAddress.Trim(),
             AdbPath = AdbPath,
+            PreSharedKey = PreSharedKey.Trim(),
             AutoConnect = true
         });
+    }
+
+    private void SetConnectedStatus()
+    {
+        StatusText = _isIpControlAvailable ? "Conectado · IP rápido" : "Conectado · ADB (lento)";
+        StatusBrush = _isIpControlAvailable ? Brushes.MediumAquamarine : Brushes.Goldenrod;
     }
 
     private void SetBusy(string text)
@@ -236,6 +273,7 @@ public sealed class MainViewModel : ObservableObject
 
     private void SetDisconnected(string text)
     {
+        _isIpControlAvailable = false;
         IsConnected = false;
         StatusText = text;
         StatusBrush = Brushes.IndianRed;
