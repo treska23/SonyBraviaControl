@@ -114,6 +114,8 @@ public sealed class MainViewModel : ObservableObject
             await ConnectAsync();
     }
 
+    public void SaveCurrentSettings() => SaveSettings();
+
     private async Task ConnectAsync()
     {
         try
@@ -122,8 +124,6 @@ public sealed class MainViewModel : ObservableObject
             AdbPath = _adb.ResolveAdbPath(AdbPath);
             SaveSettings();
 
-            // The actual remote path is probed first. Simple IP is a persistent TCP
-            // socket on port 20060 and avoids HTTP/SOAP and Android shell overhead.
             _isSimpleIpControlAvailable = await _simpleIp.ConnectAsync(IpAddress);
             _isIpControlAvailable = !_isSimpleIpControlAvailable &&
                                     await _ircc.ProbeAsync(IpAddress, PreSharedKey);
@@ -172,7 +172,6 @@ public sealed class MainViewModel : ObservableObject
 
         try
         {
-            // Fastest path: one already-open TCP socket, one 24-byte write, no wait for reply.
             if (_isSimpleIpControlAvailable && _simpleIp.SupportsKey(keyCode))
             {
                 if (await _simpleIp.SendKeyAsync(IpAddress, keyCode))
@@ -183,7 +182,6 @@ public sealed class MainViewModel : ObservableObject
                 SetConnectedStatus();
             }
 
-            // Compatibility path for commands not exposed by Simple IP on this model.
             if (_isIpControlAvailable && _ircc.SupportsKey(keyCode))
             {
                 if (await _ircc.SendKeyAsync(IpAddress, PreSharedKey, keyCode))
