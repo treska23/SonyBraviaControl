@@ -29,9 +29,7 @@ public sealed class SonyIrccService : IIrccService, IDisposable
             ["KEYCODE_CHANNEL_DOWN"] = "AAAAAQAAAAEAAAARAw==",
             ["KEYCODE_MEDIA_PLAY"] = "AAAAAgAAAJcAAAAaAw==",
             ["KEYCODE_MEDIA_PAUSE"] = "AAAAAgAAAJcAAAAZAw==",
-            ["KEYCODE_MEDIA_STOP"] = "AAAAAgAAAJcAAAAYAw==",
-            ["KEYCODE_MEDIA_REWIND"] = "AAAAAgAAAJcAAAAcAw==",
-            ["KEYCODE_MEDIA_FAST_FORWARD"] = "AAAAAgAAAJcAAAAbAw=="
+            ["KEYCODE_MEDIA_STOP"] = "AAAAAgAAAJcAAAAYAw=="
         };
 
     private readonly HttpClient _httpClient;
@@ -51,6 +49,8 @@ public sealed class SonyIrccService : IIrccService, IDisposable
             Timeout = TimeSpan.FromMilliseconds(1200)
         };
     }
+
+    public bool SupportsKey(string androidKeyCode) => IrccCodes.ContainsKey(androidKeyCode);
 
     public async Task<bool> ProbeAsync(string ipAddress, string? preSharedKey, CancellationToken cancellationToken = default)
     {
