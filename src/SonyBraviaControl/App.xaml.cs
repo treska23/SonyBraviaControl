@@ -11,10 +11,16 @@ public partial class App : Application
         base.OnStartup(e);
 
         var adbService = new AdbService();
+        var simpleIpControlService = new SonySimpleIpControlService();
         var irccService = new SonyIrccService();
         var wakeOnLanService = new WakeOnLanService();
         var settingsStore = new UserSettingsStore();
-        var viewModel = new MainViewModel(adbService, irccService, wakeOnLanService, settingsStore);
+        var viewModel = new MainViewModel(
+            adbService,
+            simpleIpControlService,
+            irccService,
+            wakeOnLanService,
+            settingsStore);
 
         var window = new MainWindow
         {
