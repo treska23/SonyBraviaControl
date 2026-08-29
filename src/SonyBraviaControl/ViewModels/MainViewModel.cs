@@ -1,8 +1,9 @@
 using System.Windows.Input;
-using System.Windows.Media;
 using SonyBraviaControl.Infrastructure;
 using SonyBraviaControl.Models;
 using SonyBraviaControl.Services;
+using Brush = System.Windows.Media.Brush;
+using Brushes = System.Windows.Media.Brushes;
 
 namespace SonyBraviaControl.ViewModels;
 
