@@ -84,8 +84,16 @@
                             </Grid.ColumnDefinitions>
                             <Button Grid.Column="0" Content="⏻  Encender" Command="{Binding WakeCommand}" Style="{StaticResource DangerButton}" />
                             <Button Grid.Column="1" Content="Reposo" Command="{Binding SendKeyCommand}" CommandParameter="KEYCODE_SLEEP" Style="{StaticResource RemoteButton}" />
-                            <Button Grid.Column="2" Content="Fuente" Command="{Binding SendKeyCommand}" CommandParameter="KEYCODE_TV_INPUT" Style="{StaticResource RemoteButton}" />
+                            <Button Grid.Column="2" Content="Menú fuentes" Command="{Binding SendKeyCommand}" CommandParameter="KEYCODE_TV_INPUT" Style="{StaticResource RemoteButton}" />
                         </Grid>
+
+                        <TextBlock Text="Entradas directas" Foreground="{StaticResource TextSecondary}" Margin="5,12,0,5" />
+                        <UniformGrid Columns="4" Margin="0,0,0,4">
+                            <Button Content="HDMI 1" Command="{Binding SendKeyCommand}" CommandParameter="KEYCODE_TV_INPUT_HDMI_1" Style="{StaticResource RemoteButton}" />
+                            <Button Content="HDMI 2" Command="{Binding SendKeyCommand}" CommandParameter="KEYCODE_TV_INPUT_HDMI_2" Style="{StaticResource RemoteButton}" />
+                            <Button Content="HDMI 3" Command="{Binding SendKeyCommand}" CommandParameter="KEYCODE_TV_INPUT_HDMI_3" Style="{StaticResource RemoteButton}" />
+                            <Button Content="HDMI 4" Command="{Binding SendKeyCommand}" CommandParameter="KEYCODE_TV_INPUT_HDMI_4" Style="{StaticResource RemoteButton}" />
+                        </UniformGrid>
 
                         <Grid Width="330" Height="270" HorizontalAlignment="Center" Margin="0,10,0,6">
                             <Grid.RowDefinitions>
