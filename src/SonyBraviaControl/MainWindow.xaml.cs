@@ -1,6 +1,9 @@
 using System.ComponentModel;
 using System.Drawing;
 using System.Windows;
+using System.Windows.Interop;
+using System.Windows.Media.Imaging;
+using SonyBraviaControl.Infrastructure;
 using SonyBraviaControl.ViewModels;
 using Forms = System.Windows.Forms;
 
@@ -9,11 +12,20 @@ namespace SonyBraviaControl;
 public partial class MainWindow : Window
 {
     private readonly Forms.NotifyIcon _trayIcon;
+    private readonly Icon _applicationIcon;
     private bool _allowExit;
 
     public MainWindow()
     {
         InitializeComponent();
+
+        _applicationIcon = AppIconFactory.CreateIcon();
+        var windowIcon = Imaging.CreateBitmapSourceFromHIcon(
+            _applicationIcon.Handle,
+            Int32Rect.Empty,
+            BitmapSizeOptions.FromEmptyOptions());
+        windowIcon.Freeze();
+        Icon = windowIcon;
 
         var openItem = new Forms.ToolStripMenuItem("Abrir Sony Bravia Control");
         openItem.Click += (_, _) => Dispatcher.Invoke(ShowFromTray);
@@ -29,7 +41,7 @@ public partial class MainWindow : Window
         _trayIcon = new Forms.NotifyIcon
         {
             Text = "Sony Bravia Control",
-            Icon = SystemIcons.Application,
+            Icon = _applicationIcon,
             ContextMenuStrip = menu,
             Visible = false
         };
@@ -46,6 +58,7 @@ public partial class MainWindow : Window
         {
             _trayIcon.Visible = false;
             _trayIcon.Dispose();
+            _applicationIcon.Dispose();
             return;
         }
 
