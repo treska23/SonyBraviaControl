@@ -57,6 +57,10 @@
                     <TextBox Grid.Row="3" Grid.ColumnSpan="2" Text="{Binding MacAddress, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,10" ToolTip="Ejemplo: AA:BB:CC:DD:EE:FF" />
 
                     <StackPanel Grid.Row="4" Grid.ColumnSpan="2">
+                        <TextBlock Text="PSK Sony · control IP rápido" Foreground="{StaticResource TextSecondary}" Margin="0,0,0,4" />
+                        <TextBox Text="{Binding PreSharedKey, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,4" ToolTip="La misma clave configurada en Ajustes de la TV → Red → Control IP. Déjalo vacío si la TV permite autenticación None." />
+                        <TextBlock Text="Si arriba aparece ‘ADB (lento)’, activa Control IP en la tele y configura aquí su Pre-Shared Key." TextWrapping="Wrap" Foreground="{StaticResource TextSecondary}" FontSize="11" Margin="0,0,0,10" />
+
                         <TextBlock Text="ADB" Foreground="{StaticResource TextSecondary}" Margin="0,0,0,4" />
                         <TextBox Text="{Binding AdbPath, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,10" />
                         <Grid>
