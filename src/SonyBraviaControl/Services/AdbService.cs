@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.IO;
 
 namespace SonyBraviaControl.Services;
 
@@ -7,7 +8,7 @@ public sealed class AdbService : IAdbService
     public string ResolveAdbPath(string? preferredPath = null)
     {
         if (!string.IsNullOrWhiteSpace(preferredPath) && File.Exists(preferredPath))
-            return preferredPath;
+            return preferredPath!;
 
         var executable = OperatingSystem.IsWindows() ? "adb.exe" : "adb";
         var path = Environment.GetEnvironmentVariable("PATH");
