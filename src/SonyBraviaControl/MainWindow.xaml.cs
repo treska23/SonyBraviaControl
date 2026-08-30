@@ -1,11 +1,10 @@
 using System.ComponentModel;
 using System.Drawing;
 using System.Windows;
-using System.Windows.Controls;
-using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media.Imaging;
+using System.Windows.Threading;
 using SonyBraviaControl.Infrastructure;
 using SonyBraviaControl.ViewModels;
 using Forms = System.Windows.Forms;
@@ -16,6 +15,8 @@ public partial class MainWindow : Window
 {
     private readonly Forms.NotifyIcon _trayIcon;
     private readonly Icon _applicationIcon;
+    private readonly DispatcherTimer _globalRemoteTimeoutTimer;
+    private GlobalRemoteControlService? _globalRemote;
     private bool _allowExit;
 
     public MainWindow()
@@ -46,31 +47,119 @@ public partial class MainWindow : Window
             Text = "Sony Bravia Control",
             Icon = _applicationIcon,
             ContextMenuStrip = menu,
-            Visible = false
+            // The app is designed to live permanently in the tray, even while its
+            // main window is visible.
+            Visible = true
         };
 
         _trayIcon.DoubleClick += (_, _) => Dispatcher.Invoke(ShowFromTray);
+
+        _globalRemoteTimeoutTimer = new DispatcherTimer
+        {
+            Interval = TimeSpan.FromSeconds(10)
+        };
+        _globalRemoteTimeoutTimer.Tick += (_, _) =>
+        {
+            _globalRemoteTimeoutTimer.Stop();
+            _globalRemote?.Deactivate();
+        };
+
+        SourceInitialized += OnSourceInitialized;
         PreviewKeyDown += OnPreviewKeyDown;
         Closing += OnClosing;
+    }
+
+    private void OnSourceInitialized(object? sender, EventArgs e)
+    {
+        var handle = new WindowInteropHelper(this).Handle;
+        var source = HwndSource.FromHwnd(handle);
+        if (source is null)
+            return;
+
+        _globalRemote = new GlobalRemoteControlService(
+            source,
+            CanCaptureGlobalKey,
+            OnGlobalRemoteKeyPressed);
+        _globalRemote.ActiveChanged += OnGlobalRemoteModeChanged;
+
+        if (!_globalRemote.Start())
+        {
+            ShowTrayMessage(
+                "Atajo global no disponible",
+                "No se pudo registrar Ctrl+Alt+Espacio. Otra aplicación puede estar usando esa combinación.");
+        }
     }
 
     private void OnPreviewKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
     {
         // When the user is typing in a field, keyboard input must stay in that field.
         // Everywhere else in the window, the keyboard behaves like the TV remote.
-        if (Keyboard.FocusedElement is System.Windows.Controls.Primitives.TextBoxBase or PasswordBox)
+        if (Keyboard.FocusedElement is System.Windows.Controls.Primitives.TextBoxBase or System.Windows.Controls.PasswordBox)
             return;
 
-        var remoteKey = TranslateKeyboardKey(e.Key);
+        if (ExecuteRemoteKey(e.Key))
+            e.Handled = true;
+    }
+
+    private bool CanCaptureGlobalKey(Key key)
+    {
+        var remoteKey = TranslateKeyboardKey(key);
         if (remoteKey is null || DataContext is not MainViewModel viewModel)
-            return;
+            return false;
+
+        return viewModel.SendKeyCommand.CanExecute(remoteKey);
+    }
+
+    private void OnGlobalRemoteKeyPressed(Key key)
+    {
+        // A low-level keyboard hook must return immediately. Queue the network command
+        // onto WPF's dispatcher instead of doing any TV work inside the hook callback.
+        Dispatcher.BeginInvoke(() =>
+        {
+            ResetGlobalRemoteTimeout();
+            ExecuteRemoteKey(key);
+        });
+    }
+
+    private void OnGlobalRemoteModeChanged(bool active)
+    {
+        Dispatcher.BeginInvoke(() =>
+        {
+            if (active)
+            {
+                ResetGlobalRemoteTimeout();
+                ShowTrayMessage(
+                    "Modo mando activo",
+                    "Flechas, Enter, Espacio, +/-, 1-4… controlan la TV. Ctrl+Alt+Espacio para salir.");
+            }
+            else
+            {
+                _globalRemoteTimeoutTimer.Stop();
+                ShowTrayMessage(
+                    "Modo mando desactivado",
+                    "El teclado vuelve a funcionar normalmente en el PC.");
+            }
+        });
+    }
+
+    private void ResetGlobalRemoteTimeout()
+    {
+        _globalRemoteTimeoutTimer.Stop();
+        _globalRemoteTimeoutTimer.Start();
+    }
+
+    private bool ExecuteRemoteKey(Key key)
+    {
+        var remoteKey = TranslateKeyboardKey(key);
+        if (remoteKey is null || DataContext is not MainViewModel viewModel)
+            return false;
 
         var command = viewModel.SendKeyCommand;
         if (!command.CanExecute(remoteKey))
-            return;
+            return false;
 
         command.Execute(remoteKey);
-        e.Handled = true;
+        return true;
     }
 
     private static string? TranslateKeyboardKey(Key key) => key switch
@@ -86,7 +175,7 @@ public partial class MainWindow : Window
         Key.Home => "KEYCODE_HOME",
         Key.Apps => "KEYCODE_MENU",
 
-        // Easy letter shortcuts while the remote window has focus.
+        // Easy letter shortcuts while the remote window has focus/global mode is active.
         Key.H => "KEYCODE_HOME",
         Key.B => "KEYCODE_BACK",
         Key.M => "KEYCODE_MENU",
@@ -125,6 +214,8 @@ public partial class MainWindow : Window
 
         if (_allowExit)
         {
+            _globalRemoteTimeoutTimer.Stop();
+            _globalRemote?.Dispose();
             _trayIcon.Visible = false;
             _trayIcon.Dispose();
             _applicationIcon.Dispose();
@@ -135,7 +226,7 @@ public partial class MainWindow : Window
         HideToTray();
     }
 
-    private void HideToTray()
+    internal void HideToTray()
     {
         ShowInTaskbar = false;
         Hide();
@@ -144,7 +235,6 @@ public partial class MainWindow : Window
 
     private void ShowFromTray()
     {
-        _trayIcon.Visible = false;
         ShowInTaskbar = true;
         Show();
 
@@ -159,6 +249,11 @@ public partial class MainWindow : Window
         SaveSettings();
         _allowExit = true;
         Close();
+    }
+
+    private void ShowTrayMessage(string title, string message)
+    {
+        _trayIcon.ShowBalloonTip(1500, title, message, Forms.ToolTipIcon.Info);
     }
 
     private void SaveSettings()
