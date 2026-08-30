@@ -81,7 +81,6 @@ public partial class MainWindow : Window
         Key.Left => "KEYCODE_DPAD_LEFT",
         Key.Right => "KEYCODE_DPAD_RIGHT",
         Key.Enter => "KEYCODE_DPAD_CENTER",
-        Key.Return => "KEYCODE_DPAD_CENTER",
         Key.Escape => "KEYCODE_BACK",
         Key.Back => "KEYCODE_BACK",
         Key.Home => "KEYCODE_HOME",
