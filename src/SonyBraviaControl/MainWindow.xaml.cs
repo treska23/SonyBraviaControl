@@ -49,8 +49,6 @@ public partial class MainWindow : Window
             Text = "Sony Bravia Control",
             Icon = _applicationIcon,
             ContextMenuStrip = menu,
-            // The app is designed to live permanently in the tray, even while its
-            // main window is visible.
             Visible = true
         };
 
@@ -104,39 +102,62 @@ public partial class MainWindow : Window
         var workingAreaPixels = Forms.Screen.FromHandle(handle).WorkingArea;
         var dpi = VisualTreeHelper.GetDpi(this);
 
-        // Screen.WorkingArea is returned in physical pixels while WPF window sizes are
-        // device-independent units. Converting here makes the same layout fit correctly
-        // at 100%, 125%, 150%, 200% scaling and when moving between monitors.
+        var workLeft = workingAreaPixels.Left / dpi.DpiScaleX;
+        var workTop = workingAreaPixels.Top / dpi.DpiScaleY;
         var workWidth = workingAreaPixels.Width / dpi.DpiScaleX;
         var workHeight = workingAreaPixels.Height / dpi.DpiScaleY;
 
-        var maxWidth = Math.Max(360, workWidth - 24);
-        var maxHeight = Math.Max(500, workHeight - 24);
-        MaxWidth = maxWidth;
-        MaxHeight = maxHeight;
+        // Leave a small gap around the native frame. Most importantly, do not impose a
+        // minimum size larger than the usable desktop: at 175%-250% scaling that was
+        // exactly what pushed the title bar above the top edge of the screen.
+        const double margin = 8;
+        var availableWidth = Math.Max(1, workWidth - (margin * 2));
+        var availableHeight = Math.Max(1, workHeight - (margin * 2));
+        var safeLeft = workLeft + margin;
+        var safeTop = workTop + margin;
+
+        MinWidth = Math.Min(340, availableWidth);
+        MinHeight = Math.Min(480, availableHeight);
+        MaxWidth = availableWidth;
+        MaxHeight = availableHeight;
 
         if (initial && !_responsiveBoundsInitialized)
         {
-            // Keep the remote compact on large monitors, but never let the initial
-            // window extend beyond the usable desktop on smaller/high-DPI displays.
-            Width = Math.Min(500, maxWidth);
-            Height = Math.Min(900, maxHeight);
-            _responsiveBoundsInitialized = true;
-        }
-        else
-        {
-            if (ActualWidth > maxWidth)
-                Width = maxWidth;
+            Width = Math.Min(500, availableWidth);
+            Height = Math.Min(900, availableHeight);
 
-            if (ActualHeight > maxHeight)
-                Height = maxHeight;
+            // WindowStartupLocation is Manual: centre only after the real monitor DPI
+            // and working area are known. This prevents WPF centring the old 900-DIP
+            // window first and leaving its title bar off-screen after we shrink it.
+            Left = safeLeft + Math.Max(0, (availableWidth - Width) / 2);
+            Top = safeTop + Math.Max(0, (availableHeight - Height) / 2);
+            _responsiveBoundsInitialized = true;
+            return;
         }
+
+        if (ActualWidth > availableWidth)
+            Width = availableWidth;
+
+        if (ActualHeight > availableHeight)
+            Height = availableHeight;
+
+        var currentWidth = double.IsNaN(ActualWidth) || ActualWidth <= 0 ? Width : ActualWidth;
+        var currentHeight = double.IsNaN(ActualHeight) || ActualHeight <= 0 ? Height : ActualHeight;
+        var maxLeft = safeLeft + Math.Max(0, availableWidth - currentWidth);
+        var maxTop = safeTop + Math.Max(0, availableHeight - currentHeight);
+
+        var targetLeft = double.IsNaN(Left) ? safeLeft : Math.Clamp(Left, safeLeft, maxLeft);
+        var targetTop = double.IsNaN(Top) ? safeTop : Math.Clamp(Top, safeTop, maxTop);
+
+        if (Math.Abs(Left - targetLeft) > 0.5 || double.IsNaN(Left))
+            Left = targetLeft;
+
+        if (Math.Abs(Top - targetTop) > 0.5 || double.IsNaN(Top))
+            Top = targetTop;
     }
 
     private void OnPreviewKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
     {
-        // When the user is typing in a field, keyboard input must stay in that field.
-        // Everywhere else in the window, the keyboard behaves like the TV remote.
         if (Keyboard.FocusedElement is System.Windows.Controls.Primitives.TextBoxBase or System.Windows.Controls.PasswordBox)
             return;
 
@@ -155,8 +176,6 @@ public partial class MainWindow : Window
 
     private void OnGlobalRemoteKeyPressed(Key key)
     {
-        // A low-level keyboard hook must return immediately. Queue the network command
-        // onto WPF's dispatcher instead of doing any TV work inside the hook callback.
         Dispatcher.BeginInvoke(() =>
         {
             ResetGlobalRemoteTimeout();
@@ -207,7 +226,6 @@ public partial class MainWindow : Window
 
     private static string? TranslateKeyboardKey(Key key) => key switch
     {
-        // Navigation: keyboard cursor keys mirror the remote D-pad.
         Key.Up => "KEYCODE_DPAD_UP",
         Key.Down => "KEYCODE_DPAD_DOWN",
         Key.Left => "KEYCODE_DPAD_LEFT",
@@ -217,19 +235,13 @@ public partial class MainWindow : Window
         Key.Back => "KEYCODE_BACK",
         Key.Home => "KEYCODE_HOME",
         Key.Apps => "KEYCODE_MENU",
-
-        // Easy letter shortcuts while the remote window has focus/global mode is active.
         Key.H => "KEYCODE_HOME",
         Key.B => "KEYCODE_BACK",
         Key.M => "KEYCODE_MENU",
         Key.I => "KEYCODE_TV_INPUT",
-
-        // Playback.
         Key.Space => "KEYCODE_MEDIA_PLAY_PAUSE",
         Key.MediaPlayPause => "KEYCODE_MEDIA_PLAY_PAUSE",
         Key.MediaStop => "KEYCODE_MEDIA_STOP",
-
-        // Volume: both normal +/- and dedicated multimedia keys.
         Key.Add => "KEYCODE_VOLUME_UP",
         Key.OemPlus => "KEYCODE_VOLUME_UP",
         Key.VolumeUp => "KEYCODE_VOLUME_UP",
@@ -237,17 +249,12 @@ public partial class MainWindow : Window
         Key.OemMinus => "KEYCODE_VOLUME_DOWN",
         Key.VolumeDown => "KEYCODE_VOLUME_DOWN",
         Key.VolumeMute => "KEYCODE_VOLUME_MUTE",
-
-        // Channels.
         Key.PageUp => "KEYCODE_CHANNEL_UP",
         Key.PageDown => "KEYCODE_CHANNEL_DOWN",
-
-        // Direct HDMI shortcuts. Both number row and numeric keypad work.
         Key.D1 or Key.NumPad1 => "KEYCODE_TV_INPUT_HDMI_1",
         Key.D2 or Key.NumPad2 => "KEYCODE_TV_INPUT_HDMI_2",
         Key.D3 or Key.NumPad3 => "KEYCODE_TV_INPUT_HDMI_3",
         Key.D4 or Key.NumPad4 => "KEYCODE_TV_INPUT_HDMI_4",
-
         _ => null
     };
 
