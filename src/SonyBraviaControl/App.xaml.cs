@@ -1,4 +1,5 @@
 using System.Windows;
+using SonyBraviaControl.Infrastructure;
 using SonyBraviaControl.Services;
 using SonyBraviaControl.ViewModels;
 
@@ -9,6 +10,10 @@ public partial class App : System.Windows.Application
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+
+        StartupRegistration.EnsureRegistered();
+        var startHidden = e.Args.Any(arg =>
+            string.Equals(arg, "--startup", StringComparison.OrdinalIgnoreCase));
 
         var adbService = new AdbService();
         var simpleIpControlService = new SonySimpleIpControlService();
@@ -27,7 +32,12 @@ public partial class App : System.Windows.Application
             DataContext = viewModel
         };
 
+        // Show once so WPF creates the native HWND. That keeps the global hotkey alive
+        // even if Windows started us directly into the system tray.
         window.Show();
+        if (startHidden)
+            window.HideToTray();
+
         _ = viewModel.InitializeAsync();
     }
 }
