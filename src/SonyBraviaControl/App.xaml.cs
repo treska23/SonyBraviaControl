@@ -31,6 +31,7 @@ public partial class App : System.Windows.Application
         {
             DataContext = viewModel
         };
+        window.SourceInitialized += (_, _) => SonyWindowChrome.Apply(window);
 
         // Show once so WPF creates the native HWND. That keeps the global hotkey alive
         // even if Windows started us directly into the system tray.
