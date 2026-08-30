@@ -9,6 +9,7 @@
     <UseWindowsForms>true</UseWindowsForms>
     <AssemblyName>SonyBraviaControl</AssemblyName>
     <RootNamespace>SonyBraviaControl</RootNamespace>
+    <ApplicationIcon>Assets\SonyBraviaControl.ico</ApplicationIcon>
   </PropertyGroup>
 
 </Project>
