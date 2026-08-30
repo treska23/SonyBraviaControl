@@ -54,7 +54,7 @@ public partial class MainWindow : Window
         Closing += OnClosing;
     }
 
-    private void OnPreviewKeyDown(object sender, KeyEventArgs e)
+    private void OnPreviewKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
     {
         // When the user is typing in a field, keyboard input must stay in that field.
         // Everywhere else in the window, the keyboard behaves like the TV remote.
