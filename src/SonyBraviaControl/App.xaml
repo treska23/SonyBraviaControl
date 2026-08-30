@@ -17,6 +17,13 @@
         <SolidColorBrush x:Key="TextPrimary" Color="#F4F6F8" />
         <SolidColorBrush x:Key="TextSecondary" Color="#A7B0BA" />
 
+        <!-- Discreet BRAVIA scrollbar palette. The track almost disappears into the
+             window and the thumb only picks up Sony blue while interacting with it. -->
+        <SolidColorBrush x:Key="ScrollTrackBrush" Color="#090C10" />
+        <SolidColorBrush x:Key="ScrollThumbBrush" Color="#313B47" />
+        <SolidColorBrush x:Key="ScrollThumbHoverBrush" Color="#46586F" />
+        <SolidColorBrush x:Key="ScrollThumbPressedBrush" Color="#3A8DFF" />
+
         <Style TargetType="Window">
             <Setter Property="Background" Value="{StaticResource AppBackground}" />
             <Setter Property="Foreground" Value="{StaticResource TextPrimary}" />
@@ -89,6 +96,83 @@
             <Setter Property="Background" Value="#321317" />
             <Setter Property="BorderBrush" Value="#7A2C34" />
             <Setter Property="Foreground" Value="#FFECEF" />
+        </Style>
+
+        <Style x:Key="BraviaScrollThumb" TargetType="Thumb">
+            <Setter Property="Focusable" Value="False" />
+            <Setter Property="MinHeight" Value="28" />
+            <Setter Property="MinWidth" Value="28" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Thumb">
+                        <Border x:Name="ThumbSurface"
+                                Margin="1"
+                                CornerRadius="4"
+                                Background="{StaticResource ScrollThumbBrush}"
+                                Opacity="0.78" />
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="ThumbSurface" Property="Background" Value="{StaticResource ScrollThumbHoverBrush}" />
+                                <Setter TargetName="ThumbSurface" Property="Opacity" Value="1" />
+                            </Trigger>
+                            <Trigger Property="IsDragging" Value="True">
+                                <Setter TargetName="ThumbSurface" Property="Background" Value="{StaticResource ScrollThumbPressedBrush}" />
+                                <Setter TargetName="ThumbSurface" Property="Opacity" Value="1" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Global ScrollBar style: no Windows arrow buttons, no white gutter, only an
+             8 px dark rail and a rounded thumb. This also keeps future scrollable areas
+             visually consistent without having to style them one by one. -->
+        <Style TargetType="ScrollBar">
+            <Setter Property="Background" Value="{StaticResource ScrollTrackBrush}" />
+            <Setter Property="Foreground" Value="{StaticResource ScrollThumbBrush}" />
+            <Setter Property="Width" Value="8" />
+            <Setter Property="MinWidth" Value="8" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ScrollBar">
+                        <Border Background="{TemplateBinding Background}"
+                                CornerRadius="4">
+                            <Track x:Name="PART_Track"
+                                   IsDirectionReversed="True"
+                                   Minimum="{TemplateBinding Minimum}"
+                                   Maximum="{TemplateBinding Maximum}"
+                                   Value="{TemplateBinding Value}"
+                                   ViewportSize="{TemplateBinding ViewportSize}">
+                                <Track.DecreaseRepeatButton>
+                                    <RepeatButton Command="{x:Static ScrollBar.PageUpCommand}"
+                                                  Focusable="False"
+                                                  Opacity="0"
+                                                  IsTabStop="False" />
+                                </Track.DecreaseRepeatButton>
+                                <Track.Thumb>
+                                    <Thumb Style="{StaticResource BraviaScrollThumb}" />
+                                </Track.Thumb>
+                                <Track.IncreaseRepeatButton>
+                                    <RepeatButton Command="{x:Static ScrollBar.PageDownCommand}"
+                                                  Focusable="False"
+                                                  Opacity="0"
+                                                  IsTabStop="False" />
+                                </Track.IncreaseRepeatButton>
+                            </Track>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="Orientation" Value="Horizontal">
+                                <Setter Property="Height" Value="8" />
+                                <Setter Property="MinHeight" Value="8" />
+                                <Setter Property="Width" Value="Auto" />
+                                <Setter Property="MinWidth" Value="0" />
+                                <Setter TargetName="PART_Track" Property="IsDirectionReversed" Value="False" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
         </Style>
 
         <Style TargetType="TextBox">
