@@ -58,7 +58,7 @@ public partial class MainWindow : Window
     {
         // When the user is typing in a field, keyboard input must stay in that field.
         // Everywhere else in the window, the keyboard behaves like the TV remote.
-        if (Keyboard.FocusedElement is TextBoxBase or PasswordBox)
+        if (Keyboard.FocusedElement is System.Windows.Controls.Primitives.TextBoxBase or PasswordBox)
             return;
 
         var remoteKey = TranslateKeyboardKey(e.Key);
