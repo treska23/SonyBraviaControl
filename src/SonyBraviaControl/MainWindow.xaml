@@ -9,14 +9,15 @@
         ResizeMode="CanResize"
         UseLayoutRounding="True"
         SnapsToDevicePixels="True"
+        Background="{StaticResource AppBackground}"
         WindowStartupLocation="CenterScreen">
-    <Grid Margin="12">
+    <Grid Margin="12" Background="{StaticResource AppBackground}">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
-        <Grid Grid.Row="0" Margin="0,0,0,10">
+        <Grid Grid.Row="0" Margin="0,0,0,10" Background="{StaticResource AppBackground}">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />
@@ -26,6 +27,7 @@
                 <TextBlock Text="Sony Bravia Control"
                            FontSize="24"
                            FontWeight="Bold"
+                           Foreground="{StaticResource TextPrimary}"
                            TextTrimming="CharacterEllipsis" />
                 <TextBlock Text="{Binding DeviceName}"
                            Margin="0,3,0,0"
@@ -36,6 +38,8 @@
 
             <Border Grid.Column="1"
                     Background="{StaticResource PanelBackground}"
+                    BorderBrush="{StaticResource ChromeBorder}"
+                    BorderThickness="1"
                     CornerRadius="14"
                     Padding="10,7"
                     MaxWidth="190">
@@ -43,23 +47,25 @@
                     <Ellipse Width="10" Height="10" Fill="{Binding StatusBrush}" Margin="0,0,8,0" />
                     <TextBlock Text="{Binding StatusText}"
                                VerticalAlignment="Center"
+                               Foreground="{StaticResource TextPrimary}"
                                FontWeight="SemiBold"
                                TextTrimming="CharacterEllipsis" />
                 </StackPanel>
             </Border>
         </Grid>
 
-        <!-- Everything below the header scrolls. This is intentional: on a small
-             display or high Windows scaling, no controls are clipped off-screen. -->
         <ScrollViewer Grid.Row="1"
+                      Background="{StaticResource AppBackground}"
                       VerticalScrollBarVisibility="Auto"
                       HorizontalScrollBarVisibility="Disabled"
                       CanContentScroll="True">
-            <StackPanel HorizontalAlignment="Stretch" MaxWidth="560">
+            <StackPanel HorizontalAlignment="Stretch" MaxWidth="560" Background="{StaticResource AppBackground}">
                 <Expander Header="Conexión y ajustes"
                           Margin="0,0,0,12"
                           Foreground="{StaticResource TextPrimary}">
                     <Border Background="{StaticResource PanelBackground}"
+                            BorderBrush="{StaticResource ChromeBorder}"
+                            BorderThickness="1"
                             CornerRadius="16"
                             Padding="12"
                             Margin="0,8,0,0">
@@ -108,7 +114,7 @@
                     </Border>
                 </Expander>
 
-                <Border Background="{StaticResource PanelBackground}" CornerRadius="22" Padding="10" Margin="0,0,0,12">
+                <Border Background="{StaticResource PanelBackground}" BorderBrush="{StaticResource ChromeBorder}" BorderThickness="1" CornerRadius="22" Padding="10" Margin="0,0,0,12">
                     <StackPanel>
                         <UniformGrid Columns="3">
                             <Button Content="⏻  Encender" Command="{Binding WakeCommand}" Style="{StaticResource DangerButton}" />
@@ -124,8 +130,6 @@
                             <Button Content="HDMI 4" Command="{Binding SendKeyCommand}" CommandParameter="KEYCODE_TV_INPUT_HDMI_4" Style="{StaticResource RemoteButton}" />
                         </UniformGrid>
 
-                        <!-- The D-pad keeps its proportions but shrinks automatically on
-                             narrow/high-DPI screens instead of overflowing horizontally. -->
                         <Viewbox Stretch="Uniform"
                                  StretchDirection="DownOnly"
                                  HorizontalAlignment="Stretch"
@@ -160,7 +164,7 @@
                     </StackPanel>
                 </Border>
 
-                <Border Background="{StaticResource PanelBackground}" CornerRadius="18" Padding="10" Margin="0,0,0,12">
+                <Border Background="{StaticResource PanelBackground}" BorderBrush="{StaticResource ChromeBorder}" BorderThickness="1" CornerRadius="18" Padding="10" Margin="0,0,0,12">
                     <Grid>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*" />
@@ -183,7 +187,7 @@
                     </Grid>
                 </Border>
 
-                <Border Background="{StaticResource PanelBackground}" CornerRadius="18" Padding="10" Margin="0,0,0,12">
+                <Border Background="{StaticResource PanelBackground}" BorderBrush="{StaticResource ChromeBorder}" BorderThickness="1" CornerRadius="18" Padding="10" Margin="0,0,0,12">
                     <StackPanel>
                         <TextBlock Text="Reproducción" Foreground="{StaticResource TextSecondary}" Margin="5,0,0,5" />
                         <UniformGrid Columns="4">
@@ -195,7 +199,7 @@
                     </StackPanel>
                 </Border>
 
-                <Border Background="{StaticResource PanelBackground}" CornerRadius="18" Padding="10" Margin="0,0,0,12">
+                <Border Background="{StaticResource PanelBackground}" BorderBrush="{StaticResource ChromeBorder}" BorderThickness="1" CornerRadius="18" Padding="10" Margin="0,0,0,12">
                     <StackPanel>
                         <TextBlock Text="Apps" Foreground="{StaticResource TextSecondary}" Margin="5,0,0,5" />
                         <UniformGrid Columns="2">
@@ -209,7 +213,7 @@
                     </StackPanel>
                 </Border>
 
-                <Border Background="{StaticResource PanelBackground}" CornerRadius="18" Padding="10" Margin="0,0,0,12">
+                <Border Background="{StaticResource PanelBackground}" BorderBrush="{StaticResource ChromeBorder}" BorderThickness="1" CornerRadius="18" Padding="10" Margin="0,0,0,12">
                     <StackPanel>
                         <TextBlock Text="Escribir en la tele" Foreground="{StaticResource TextSecondary}" Margin="5,0,0,5" />
                         <Grid>
