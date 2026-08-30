@@ -3,6 +3,7 @@ using System.Drawing;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Interop;
+using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using SonyBraviaControl.Infrastructure;
@@ -18,6 +19,7 @@ public partial class MainWindow : Window
     private readonly DispatcherTimer _globalRemoteTimeoutTimer;
     private GlobalRemoteControlService? _globalRemote;
     private bool _allowExit;
+    private bool _responsiveBoundsInitialized;
 
     public MainWindow()
     {
@@ -65,12 +67,15 @@ public partial class MainWindow : Window
         };
 
         SourceInitialized += OnSourceInitialized;
+        LocationChanged += (_, _) => ApplyResponsiveWindowBounds(initial: false);
         PreviewKeyDown += OnPreviewKeyDown;
         Closing += OnClosing;
     }
 
     private void OnSourceInitialized(object? sender, EventArgs e)
     {
+        ApplyResponsiveWindowBounds(initial: true);
+
         var handle = new WindowInteropHelper(this).Handle;
         var source = HwndSource.FromHwnd(handle);
         if (source is null)
@@ -87,6 +92,44 @@ public partial class MainWindow : Window
             ShowTrayMessage(
                 "Atajo global no disponible",
                 "No se pudo registrar Ctrl+Alt+Espacio. Otra aplicación puede estar usando esa combinación.");
+        }
+    }
+
+    private void ApplyResponsiveWindowBounds(bool initial)
+    {
+        var handle = new WindowInteropHelper(this).Handle;
+        if (handle == IntPtr.Zero)
+            return;
+
+        var workingAreaPixels = Forms.Screen.FromHandle(handle).WorkingArea;
+        var dpi = VisualTreeHelper.GetDpi(this);
+
+        // Screen.WorkingArea is returned in physical pixels while WPF window sizes are
+        // device-independent units. Converting here makes the same layout fit correctly
+        // at 100%, 125%, 150%, 200% scaling and when moving between monitors.
+        var workWidth = workingAreaPixels.Width / dpi.DpiScaleX;
+        var workHeight = workingAreaPixels.Height / dpi.DpiScaleY;
+
+        var maxWidth = Math.Max(360, workWidth - 24);
+        var maxHeight = Math.Max(500, workHeight - 24);
+        MaxWidth = maxWidth;
+        MaxHeight = maxHeight;
+
+        if (initial && !_responsiveBoundsInitialized)
+        {
+            // Keep the remote compact on large monitors, but never let the initial
+            // window extend beyond the usable desktop on smaller/high-DPI displays.
+            Width = Math.Min(500, maxWidth);
+            Height = Math.Min(900, maxHeight);
+            _responsiveBoundsInitialized = true;
+        }
+        else
+        {
+            if (ActualWidth > maxWidth)
+                Width = maxWidth;
+
+            if (ActualHeight > maxHeight)
+                Height = maxHeight;
         }
     }
 
@@ -241,6 +284,7 @@ public partial class MainWindow : Window
         if (WindowState == WindowState.Minimized)
             WindowState = WindowState.Normal;
 
+        ApplyResponsiveWindowBounds(initial: false);
         Activate();
     }
 
