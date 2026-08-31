@@ -20,6 +20,8 @@ public sealed class MainViewModel : ObservableObject
     private readonly AsyncRelayCommand<string> _launchAppCommand;
     private readonly AsyncRelayCommand _sendTextCommand;
     private readonly AsyncRelayCommand _rebootCommand;
+    private readonly SemaphoreSlim _reconnectLock = new(1, 1);
+    private readonly CancellationTokenSource _connectionMonitorCts = new();
 
     private string _ipAddress = "192.168.1.2";
     private string _port = "5555";
@@ -33,6 +35,8 @@ public sealed class MainViewModel : ObservableObject
     private bool _isConnected;
     private bool _isSimpleIpControlAvailable;
     private bool _isIpControlAvailable;
+    private bool _autoReconnectEnabled = true;
+    private Task? _connectionMonitorTask;
 
     public MainViewModel(
         IAdbService adb,
@@ -110,6 +114,9 @@ public sealed class MainViewModel : ObservableObject
         MacAddress = settings.MacAddress;
         AdbPath = _adb.ResolveAdbPath(settings.AdbPath);
         PreSharedKey = settings.PreSharedKey;
+        _autoReconnectEnabled = settings.AutoConnect;
+
+        StartConnectionMonitor();
 
         if (settings.AutoConnect)
             await ConnectAsync();
@@ -119,6 +126,9 @@ public sealed class MainViewModel : ObservableObject
 
     private async Task ConnectAsync()
     {
+        _autoReconnectEnabled = true;
+        StartConnectionMonitor();
+
         try
         {
             SetBusy("Conectando…");
@@ -160,6 +170,8 @@ public sealed class MainViewModel : ObservableObject
 
     private async Task DisconnectAsync()
     {
+        // This is the only action that intentionally disables automatic recovery.
+        _autoReconnectEnabled = false;
         _isSimpleIpControlAvailable = false;
         _isIpControlAvailable = false;
         await _simpleIp.DisconnectAsync();
@@ -196,7 +208,11 @@ public sealed class MainViewModel : ObservableObject
         }
         catch
         {
-            SetDisconnected("Conexión perdida");
+            // Do not disable the remote after a transient network failure. Keep all
+            // controls enabled and start recovering the preferred path immediately.
+            StatusText = "Reconectando…";
+            StatusBrush = Brushes.Goldenrod;
+            _ = RestorePreferredConnectionAsync(CancellationToken.None);
         }
     }
 
@@ -220,6 +236,9 @@ public sealed class MainViewModel : ObservableObject
 
     private async Task WakeAsync()
     {
+        _autoReconnectEnabled = true;
+        StartConnectionMonitor();
+
         try
         {
             AdbPath = _adb.ResolveAdbPath(AdbPath);
@@ -277,6 +296,9 @@ public sealed class MainViewModel : ObservableObject
 
     private async Task RebootAsync()
     {
+        _autoReconnectEnabled = true;
+        StartConnectionMonitor();
+
         try
         {
             StatusText = "Reiniciando…";
@@ -295,6 +317,100 @@ public sealed class MainViewModel : ObservableObject
         _isSimpleIpControlAvailable = await _simpleIp.ConnectAsync(IpAddress);
         _isIpControlAvailable = !_isSimpleIpControlAvailable &&
                                 await _ircc.ProbeAsync(IpAddress, PreSharedKey);
+    }
+
+    private void StartConnectionMonitor()
+    {
+        _connectionMonitorTask ??= MonitorConnectionAsync(_connectionMonitorCts.Token);
+    }
+
+    private async Task MonitorConnectionAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            while (!cancellationToken.IsCancellationRequested)
+            {
+                await Task.Delay(TimeSpan.FromSeconds(10), cancellationToken);
+                if (!_autoReconnectEnabled)
+                    continue;
+
+                await RestorePreferredConnectionAsync(cancellationToken);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Normal application shutdown.
+        }
+    }
+
+    private async Task RestorePreferredConnectionAsync(CancellationToken cancellationToken)
+    {
+        if (!_autoReconnectEnabled || string.IsNullOrWhiteSpace(IpAddress))
+            return;
+
+        // A key press and the background monitor can both notice a dead socket at the
+        // same time. Only one of them should perform network recovery.
+        if (!await _reconnectLock.WaitAsync(0, cancellationToken))
+            return;
+
+        try
+        {
+            var simpleIpAvailable = await _simpleIp.ConnectAsync(IpAddress, cancellationToken);
+            if (simpleIpAvailable)
+            {
+                var changed = !_isSimpleIpControlAvailable || !IsConnected;
+                _isSimpleIpControlAvailable = true;
+                _isIpControlAvailable = false;
+                IsConnected = true;
+
+                if (changed || !string.Equals(StatusText, "TCP directo · 20060", StringComparison.Ordinal))
+                    SetConnectedStatus();
+
+                return;
+            }
+
+            _isSimpleIpControlAvailable = false;
+
+            var irccAvailable = await _ircc.ProbeAsync(IpAddress, PreSharedKey, cancellationToken);
+            if (irccAvailable)
+            {
+                var changed = !_isIpControlAvailable || !IsConnected;
+                _isIpControlAvailable = true;
+                IsConnected = true;
+
+                if (changed || !string.Equals(StatusText, "IRCC HTTP", StringComparison.Ordinal))
+                    SetConnectedStatus();
+
+                return;
+            }
+
+            _isIpControlAvailable = false;
+
+            // Keep an already-connected remote usable while the TV/network has a brief
+            // hiccup. SendKeyAsync can still fall back to ADB and this monitor will keep
+            // trying the fast paths every ten seconds without user intervention.
+            if (IsConnected && StatusText is not "ADB")
+            {
+                StatusText = "Reconectando…";
+                StatusBrush = Brushes.Goldenrod;
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Monitor is stopping.
+        }
+        catch
+        {
+            if (IsConnected)
+            {
+                StatusText = "Reconectando…";
+                StatusBrush = Brushes.Goldenrod;
+            }
+        }
+        finally
+        {
+            _reconnectLock.Release();
+        }
     }
 
     private void SaveSettings()
