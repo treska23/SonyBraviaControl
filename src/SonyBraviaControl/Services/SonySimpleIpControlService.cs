@@ -7,6 +7,8 @@ namespace SonyBraviaControl.Services;
 public sealed class SonySimpleIpControlService : ISimpleIpControlService, IDisposable
 {
     private const int Port = 20060;
+    private static readonly TimeSpan ConnectTimeout = TimeSpan.FromMilliseconds(700);
+    private static readonly TimeSpan SendTimeout = TimeSpan.FromMilliseconds(800);
 
     private static readonly IReadOnlyDictionary<string, int> IrCodes =
         new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
@@ -46,15 +48,19 @@ public sealed class SonySimpleIpControlService : ISimpleIpControlService, IDispo
     private CancellationTokenSource? _readerCts;
     private Task? _readerTask;
     private string? _connectedIp;
+    private bool _disposed;
 
     public bool SupportsKey(string androidKeyCode) => IrCodes.ContainsKey(androidKeyCode);
 
     public async Task<bool> ConnectAsync(string ipAddress, CancellationToken cancellationToken = default)
     {
+        if (_disposed)
+            return false;
+
         try
         {
             await EnsureConnectedAsync(ipAddress, cancellationToken);
-            return true;
+            return IsConnectionUsable(ipAddress.Trim());
         }
         catch
         {
@@ -65,52 +71,64 @@ public sealed class SonySimpleIpControlService : ISimpleIpControlService, IDispo
 
     public async Task<bool> SendKeyAsync(string ipAddress, string androidKeyCode, CancellationToken cancellationToken = default)
     {
-        if (!IrCodes.TryGetValue(androidKeyCode, out var irCode))
+        if (_disposed || !IrCodes.TryGetValue(androidKeyCode, out var irCode))
             return false;
 
-        try
-        {
-            await EnsureConnectedAsync(ipAddress, cancellationToken);
-            var frame = BuildIrccFrame(irCode);
+        var frame = BuildIrccFrame(irCode);
 
-            await _writeLock.WaitAsync(cancellationToken);
+        // A Sony TV can silently drop the persistent Simple IP socket after it has
+        // been idle for a while. Retry once on a fresh connection so the first key
+        // pressed after a long idle period still works instead of leaving the remote dead.
+        for (var attempt = 0; attempt < 2; attempt++)
+        {
+            NetworkStream? stream = null;
             try
             {
-                if (_stream is null)
-                    return false;
+                await EnsureConnectedAsync(ipAddress, cancellationToken);
+                stream = _stream;
+                if (stream is null || !IsConnectionUsable(ipAddress.Trim()))
+                    throw new IOException("La conexión Simple IP ya no está disponible.");
 
-                await _stream.WriteAsync(frame, cancellationToken);
-                // NetworkStream.Flush is a no-op. Do not wait for Sony's acknowledgement:
-                // the command is already on the TCP socket and perceived latency matters here.
+                using var sendTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                sendTimeout.CancelAfter(SendTimeout);
+
+                await _writeLock.WaitAsync(sendTimeout.Token);
+                try
+                {
+                    // Never use the field after acquiring the write lock: another task may
+                    // have replaced the connection while this command was waiting.
+                    if (!ReferenceEquals(stream, _stream) || !IsConnectionUsable(ipAddress.Trim()))
+                        throw new IOException("La conexión Simple IP cambió antes del envío.");
+
+                    await stream.WriteAsync(frame, sendTimeout.Token);
+                }
+                finally
+                {
+                    _writeLock.Release();
+                }
+
+                return true;
             }
-            finally
+            catch
             {
-                _writeLock.Release();
+                await InvalidateConnectionAsync(stream);
+                if (attempt == 0 && !cancellationToken.IsCancellationRequested)
+                    continue;
             }
+        }
 
-            return true;
-        }
-        catch
-        {
-            await DisconnectAsync();
-            return false;
-        }
+        return false;
     }
 
     public async Task DisconnectAsync()
     {
+        if (_disposed)
+            return;
+
         await _connectionLock.WaitAsync();
         try
         {
-            _readerCts?.Cancel();
-            _stream?.Dispose();
-            _client?.Dispose();
-            _stream = null;
-            _client = null;
-            _connectedIp = null;
-            _readerCts?.Dispose();
-            _readerCts = null;
-            _readerTask = null;
+            DisposeConnectionCore();
         }
         finally
         {
@@ -121,24 +139,16 @@ public sealed class SonySimpleIpControlService : ISimpleIpControlService, IDispo
     private async Task EnsureConnectedAsync(string ipAddress, CancellationToken cancellationToken)
     {
         var ip = ipAddress.Trim();
-        if (_client is { Connected: true } && _stream is not null &&
-            string.Equals(_connectedIp, ip, StringComparison.OrdinalIgnoreCase))
-        {
+        if (IsConnectionUsable(ip))
             return;
-        }
 
         await _connectionLock.WaitAsync(cancellationToken);
         try
         {
-            if (_client is { Connected: true } && _stream is not null &&
-                string.Equals(_connectedIp, ip, StringComparison.OrdinalIgnoreCase))
-            {
+            if (IsConnectionUsable(ip))
                 return;
-            }
 
-            _readerCts?.Cancel();
-            _stream?.Dispose();
-            _client?.Dispose();
+            DisposeConnectionCore();
 
             var client = new TcpClient
             {
@@ -147,8 +157,19 @@ public sealed class SonySimpleIpControlService : ISimpleIpControlService, IDispo
                 ReceiveBufferSize = 4096
             };
 
+            // Ask Windows to detect a broken idle TCP connection instead of allowing a
+            // half-open socket to live forever. We still do our own stale-socket check too.
+            try
+            {
+                client.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.KeepAlive, true);
+            }
+            catch
+            {
+                // Keep-alive is an optimisation; explicit reconnect logic remains enough.
+            }
+
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            timeout.CancelAfter(TimeSpan.FromMilliseconds(500));
+            timeout.CancelAfter(ConnectTimeout);
             await client.ConnectAsync(ip, Port, timeout.Token);
 
             _client = client;
@@ -163,6 +184,91 @@ public sealed class SonySimpleIpControlService : ISimpleIpControlService, IDispo
         }
     }
 
+    private bool IsConnectionUsable(string ipAddress)
+    {
+        var client = _client;
+        if (client is null || _stream is null || !client.Connected ||
+            !string.Equals(_connectedIp, ipAddress, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        try
+        {
+            var socket = client.Client;
+            // Connected only reports the state of the last socket operation. Poll +
+            // Available detects a graceful close that happened while the app was idle.
+            return !(socket.Poll(0, SelectMode.SelectRead) && socket.Available == 0);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private async Task DrainResponsesAsync(NetworkStream stream, CancellationToken cancellationToken)
+    {
+        var buffer = new byte[256];
+        var connectionLost = false;
+
+        try
+        {
+            while (!cancellationToken.IsCancellationRequested)
+            {
+                var read = await stream.ReadAsync(buffer, cancellationToken);
+                if (read == 0)
+                {
+                    connectionLost = true;
+                    break;
+                }
+            }
+        }
+        catch when (!cancellationToken.IsCancellationRequested)
+        {
+            connectionLost = true;
+        }
+        catch (OperationCanceledException)
+        {
+            // Normal shutdown/reconnect.
+        }
+
+        if (connectionLost)
+            await InvalidateConnectionAsync(stream);
+    }
+
+    private async Task InvalidateConnectionAsync(NetworkStream? observedStream)
+    {
+        if (_disposed)
+            return;
+
+        await _connectionLock.WaitAsync();
+        try
+        {
+            // Do not tear down a newer socket created by another concurrent key press.
+            if (observedStream is not null && !ReferenceEquals(_stream, observedStream))
+                return;
+
+            DisposeConnectionCore();
+        }
+        finally
+        {
+            _connectionLock.Release();
+        }
+    }
+
+    private void DisposeConnectionCore()
+    {
+        _readerCts?.Cancel();
+        _stream?.Dispose();
+        _client?.Dispose();
+        _stream = null;
+        _client = null;
+        _connectedIp = null;
+        _readerCts?.Dispose();
+        _readerCts = null;
+        _readerTask = null;
+    }
+
     private static byte[] BuildIrccFrame(int irCode)
     {
         var parameters = irCode.ToString("D16", CultureInfo.InvariantCulture);
@@ -170,26 +276,12 @@ public sealed class SonySimpleIpControlService : ISimpleIpControlService, IDispo
         return Encoding.ASCII.GetBytes(frame);
     }
 
-    private static async Task DrainResponsesAsync(NetworkStream stream, CancellationToken cancellationToken)
-    {
-        var buffer = new byte[256];
-        try
-        {
-            while (!cancellationToken.IsCancellationRequested)
-            {
-                var read = await stream.ReadAsync(buffer, cancellationToken);
-                if (read == 0)
-                    break;
-            }
-        }
-        catch
-        {
-            // The next write will reconnect if the socket has gone away.
-        }
-    }
-
     public void Dispose()
     {
+        if (_disposed)
+            return;
+
+        _disposed = true;
         _readerCts?.Cancel();
         _stream?.Dispose();
         _client?.Dispose();
